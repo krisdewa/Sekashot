@@ -223,6 +223,15 @@ def _portal_capture(timeout_ms: int = 15000) -> QImage | None:
 # X11
 # ----------------------------------------------------------------------
 def _x11_capture() -> Screenshot | None:
+    """Grab the X11 root window of every screen, in device pixels.
+
+    ``QScreen.grabWindow()`` returns the *panel's native resolution*: on a
+    HiDPI X11 screen a 3840x2160 monitor yields a 3840x2160 image even
+    though its logical geometry is only 1920x1080.  The canvas is therefore
+    built in device pixels too.  A canvas sized from the logical geometry
+    would silently downscale the grab by the scale factor and export a
+    1920x1080 copy of a 3840x2160 screen.
+    """
     app = QGuiApplication.instance()
     if app is None:
         return None
@@ -234,7 +243,15 @@ def _x11_capture() -> Screenshot | None:
     for screen in screens[1:]:
         virtual = virtual.united(screen.geometry())
 
-    canvas = QImage(virtual.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    # One scale factor for the whole desktop.  Qt maps the virtual desktop
+    # linearly, so a single factor is exact whenever the screens share the
+    # same scale - the normal case.
+    dpr = max((s.devicePixelRatio() for s in screens), default=1.0) or 1.0
+
+    canvas = QImage(
+        QSize(round(virtual.width() * dpr), round(virtual.height() * dpr)),
+        QImage.Format.Format_ARGB32_Premultiplied,
+    )
     canvas.fill(Qt.GlobalColor.black)
 
     from PyQt6.QtGui import QPainter
@@ -246,7 +263,17 @@ def _x11_capture() -> Screenshot | None:
         shot = screen.grabWindow(0, 0, 0, geo.width(), geo.height())
         if shot.isNull():
             continue
-        painter.drawPixmap(geo.topLeft() - virtual.topLeft(), shot)
+        # drop the device-pixel-ratio attribute so the pixmap's raw pixels are
+        # copied 1:1 instead of being scaled down by the painter
+        image = shot.toImage()
+        image.setDevicePixelRatio(1.0)
+        target = QRect(
+            round((geo.left() - virtual.left()) * dpr),
+            round((geo.top() - virtual.top()) * dpr),
+            round(geo.width() * dpr),
+            round(geo.height() * dpr),
+        )
+        painter.drawImage(target, image)
         grabbed += 1
     painter.end()
 

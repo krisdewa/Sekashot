@@ -17,11 +17,21 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt  # noqa: E402
-from PyQt6.QtGui import QColor, QImage, QPainter, QWheelEvent  # noqa: E402
+from PyQt6.QtGui import QColor, QImage, QPainter, QPixmap, QWheelEvent  # noqa: E402
 from PyQt6.QtTest import QTest  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
-from sekashot.annotations import ARROW, BLUR, LINE, MARKER, PEN, RECT, SELECT, TEXT  # noqa: E402
+from sekashot.annotations import (  # noqa: E402
+    ARROW,
+    BLUR,
+    LINE,
+    MARKER,
+    PEN,
+    RECT,
+    SELECT,
+    TEXT,
+    Annotation,
+)
 from sekashot.config import Config  # noqa: E402
 from sekashot.overlay import CaptureOverlay  # noqa: E402
 
@@ -537,6 +547,115 @@ def main() -> int:
         cap._portal_capture = real_portal
         cap._x11_capture = real_x11
         cap.Screenshot = real_screenshot
+
+    print("\n18. no quality loss between capture and export")
+
+    def _diff(a, b) -> tuple[int, int]:
+        """(differing pixels, worst per-channel delta) of two equal-sized images."""
+        if a.width() != b.width() or a.height() != b.height():
+            return (-1, -1)
+        a32 = a.convertToFormat(QImage.Format.Format_RGB32)
+        b32 = b.convertToFormat(QImage.Format.Format_RGB32)
+        n = a32.width() * a32.height()
+        sa = a32.constBits().asstring(n * 4)
+        sb = b32.constBits().asstring(n * 4)
+        bad = 0
+        worst = 0
+        for i in range(0, len(sa), 4):
+            d = abs(sa[i] - sb[i])
+            if d:
+                bad += 1
+                worst = max(worst, d)
+        return bad, worst
+
+    # a colourful source image with hard edges in every direction
+    src = QImage(800, 600, QImage.Format.Format_ARGB32_Premultiplied)
+    src.fill(QColor("#101820"))
+    p = QPainter(src)
+    for i in range(0, 800, 37):
+        p.setPen(QColor((i * 7) % 256, (i * 13) % 256, (i * 29) % 256))
+        p.drawLine(i, 0, i, 600)
+    p.setPen(QColor("#ff0000"))
+    p.drawRect(120, 90, 300, 200)
+    p.end()
+
+    # the export must be pixel-identical to the captured region, even when the
+    # on-screen overlay is scaled down (which is what a HiDPI display does)
+    ov = CaptureOverlay(src, Config())
+    ov.resize(src.width() // 2, src.height() // 2)
+    x0, y0, w, h = 137, 211, 400, 300
+    ov.sel = QRectF(ov.to_widget(QPointF(x0, y0)), ov.to_widget(QPointF(x0 + w, y0 + h)))
+    out = ov.render_result()
+    check(
+        "the export keeps the selection size",
+        out.width() == w and out.height() == h,
+        f"{out.width()}x{out.height()}",
+    )
+    bad, worst = _diff(out, src.copy(x0, y0, w, h))
+    check(
+        "the export is pixel-identical to the capture (no resampling)",
+        bad == 0,
+        f"{bad} differing px, max delta {worst}",
+    )
+    check(
+        "the export's device pixel ratio is normalised to 1",
+        out.devicePixelRatio() == 1.0,
+        str(out.devicePixelRatio()),
+    )
+
+    # an annotation may only touch the pixels it covers
+    ov.annotations = [
+        Annotation(
+            kind=RECT,
+            color=(255, 0, 0, 255),
+            width=3,
+            points=[QPointF(x0 + 40, y0 + 40), QPointF(x0 + 160, y0 + 120)],
+        )
+    ]
+    ann_out = ov.render_result()
+    untouched = _diff(
+        ann_out.copy(0, 0, w, 30), src.copy(x0, y0, w, 30)
+    )[0]
+    check(
+        "an annotation leaves the surrounding pixels untouched",
+        untouched == 0,
+        f"{untouched} differing px",
+    )
+
+    # the X11 grab must keep the panel's native resolution
+    src_geom = QRect(0, 0, 1920, 1080)
+    src_dpr = 2.0
+    grabbed = QImage(3840, 2160, QImage.Format.Format_ARGB32_Premultiplied)
+    grabbed.fill(QColor("#2f7ebf"))
+    grabbed.setDevicePixelRatio(src_dpr)
+
+    class _FakeScreen:
+        """A HiDPI screen whose grab comes back at the panel's resolution."""
+
+        def geometry(self):
+            return src_geom
+
+        def devicePixelRatio(self):
+            return src_dpr
+
+        def grabWindow(self, *_args):
+            pm = QPixmap.fromImage(grabbed)
+            return pm
+
+    class _FakeScreens(list):
+        pass
+
+    real_screens = cap.QGuiApplication.screens
+    try:
+        cap.QGuiApplication.screens = staticmethod(lambda: _FakeScreens([_FakeScreen()]))
+        hi = cap._x11_capture()
+        check(
+            "the X11 grab keeps the panel's native resolution",
+            hi is not None and hi.image.width() == 3840 and hi.image.height() == 2160,
+            f"{hi.image.width()}x{hi.image.height()}" if hi else "no capture",
+        )
+    finally:
+        cap.QGuiApplication.screens = real_screens
 
     print("\n" + "=" * 60)
     if FAILURES:

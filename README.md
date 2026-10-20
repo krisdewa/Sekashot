@@ -21,6 +21,20 @@ annotate it, then copy or save it.
 
 Cloud upload, share, Google Lens and print are deliberately not included.
 
+### Image quality
+
+Nothing is downscaled on the way out. The capture is taken at the panel's
+native resolution, the selection is cropped from those original pixels, and
+the result is written as PNG — lossless. An annotation only changes the pixels
+it actually covers.
+
+`tools/quality_test.py` measures this rather than assuming it: the exported
+image is pixel-identical to the captured region, even when the overlay is
+drawn at half size, which is what a HiDPI display does.
+
+JPEG is offered in the settings if a smaller file matters more to you; that
+one is lossy, of course.
+
 ## Install
 
 **Debian / Ubuntu**
@@ -137,11 +151,12 @@ the reliable path.
 ## Development
 
 ```bash
-QT_QPA_PLATFORM=offscreen python3 tools/selftest.py       # 74 assertions
+QT_QPA_PLATFORM=offscreen python3 tools/selftest.py       # 79 assertions
 
 dpkg-deb -x sekashot.deb /tmp/root
 PYTHONPATH=/tmp/root/usr/lib/sekashot python3 tools/integration_test.py
 
+QT_QPA_PLATFORM=offscreen python3 tools/quality_test.py   # pixel-loss audit
 QT_QPA_PLATFORM=offscreen python3 tools/preview.py /tmp/out   # render the overlay
 ./packaging/build.sh                                           # build the .deb
 ```
@@ -150,7 +165,8 @@ QT_QPA_PLATFORM=offscreen python3 tools/preview.py /tmp/out   # render the overl
 sekashot/     app.py  overlay.py  annotations.py  capture.py  hotkey.py
               config.py  settings_dialog.py  sound.py  blur.py  icons.py
 packaging/    control.in  desktop entries  maintainer scripts  build.sh
-tools/        selftest.py  integration_test.py  preview.py  make_icons.py
+tools/        selftest.py  integration_test.py  quality_test.py  preview.py
+              make_icons.py
 ```
 
 The design decisions behind the implementation are written up in

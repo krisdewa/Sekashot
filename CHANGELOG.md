@@ -24,9 +24,20 @@ First public release.
 - Desktop notifications that name the file a capture was saved to.
 - CLI: `sekashot --capture`, `--full`, `--settings`, `--install-hotkey`.
 - Debian package with menu entry, autostart entry and icons.
+- `tools/quality_test.py`, a pixel-loss audit: it captures the screen, shrinks
+  the overlay to half size, exports a selection and measures the exported image
+  against the captured region. It also compares grim's PPM output against its
+  PNG output and checks that the clipboard payload is lossless.
 
 ### Fixed
 
+- **The X11 grab keeps the panel's native resolution.** `QScreen.grabWindow()`
+  returns device pixels, so on a HiDPI screen a 3840×2160 monitor produced a
+  3840×2160 image even though its logical geometry is 1920×1080. The canvas was
+  sized from the logical geometry, so the grab was silently downscaled by the
+  scale factor and the export came out at half resolution. The canvas is now
+  built in device pixels, and the pixmap's device-pixel ratio is dropped before
+  it is copied in, so the pixels are transferred 1:1.
 - **A failed capture is no longer shown as a screenshot.** The Wayland path fell
   through to the X11 grab, which does not fail loudly — it returns a black
   rectangle — so a missing capture helper produced an unexplained black overlay.
@@ -54,7 +65,9 @@ First public release.
 - *Annotations live in image coordinates.* The widget scales the screenshot to
   fit the output (HiDPI, fractional scaling, multi-monitor), while annotation
   points are stored in native screenshot pixels — so the exported PNG is
-  pixel-exact regardless of display scaling.
+  pixel-exact regardless of display scaling. The export path crops from the
+  original capture rather than from the scaled widget, and the device pixel
+  ratio is normalised to 1.
 - *The hot path loads no Qt.* A keybind spawns `sekashot --capture`, which
   answers the running daemon over an `AF_UNIX` socket before PyQt6 is even
   imported. grim is asked for raw PPM rather than PNG, and the tray-settle pause
