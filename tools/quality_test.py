@@ -65,6 +65,21 @@ def diff_pixels(a: QImage, b: QImage):
             yield i // 4 % w, i // 4 // w, d
 
 
+def _raw_rgb32(image: QImage) -> bytes:
+    """The image as a flat RGB32 buffer, for cheap byte-wise comparison."""
+    img = image.convertToFormat(QImage.Format.Format_RGB32)
+    return img.constBits().asstring(img.width() * img.height() * 4)
+
+
+def _diff_index_set(a: bytes, b: bytes) -> set[int]:
+    """The indices of the pixels that differ between two raw RGB32 buffers."""
+    out: set[int] = set()
+    for i in range(0, len(a), 4):
+        if a[i] != b[i] or a[i + 1] != b[i + 1] or a[i + 2] != b[i + 2]:
+            out.add(i >> 2)
+    return out
+
+
 def _synthetic_ppm(w: int, h: int) -> bytes:
     """A deterministic PPM (P6) frame - no live screen involved."""
     body = bytearray()
@@ -105,33 +120,39 @@ def main() -> int:
     )
 
     # A.2 - live: grim's PPM output against grim's PNG output.  The screen
-    # moves between two grabs (a clock, a spinner, an animation), so the two
-    # frames are never identical.  Instead of giving up, the change between
-    # two consecutive PPM grabs is used as the noise floor: every pixel that
-    # differs between the PPM and the PNG frame must already be a pixel that
-    # was moving.  A lossy PPM path would differ in far more places than that.
-    ppm_proc = subprocess.run(["grim", "-t", "ppm", "-c", "-"], capture_output=True)
-    ppm2_proc = subprocess.run(["grim", "-t", "ppm", "-c", "-"], capture_output=True)
-    png_proc = subprocess.run(["grim", "-t", "png", "-c", "-"], capture_output=True)
-    if ppm_proc.returncode or png_proc.returncode:
+    # moves between grabs (a clock, a spinner, a window that fades in), so no
+    # two frames are identical - and on a busy desktop a single transient can
+    # repaint a third of the screen.  Four grabs are therefore interleaved -
+    # PPM, PNG, PPM, PNG - and every pixel that differs in *any* pair of them
+    # counts as unstable.  The PPM/PNG pair under test is excluded from that
+    # noise floor, so the check cannot explain itself away.  A lossy PPM path
+    # would differ in far more places than the unstable set.
+    frames: list[QImage] = []
+    for fmt in ("ppm", "png", "ppm", "png"):
+        proc = subprocess.run(["grim", "-t", fmt, "-c", "-"], capture_output=True)
+        if proc.returncode:
+            frames = []
+            break
+        img = QImage()
+        img.loadFromData(proc.stdout, fmt)
+        frames.append(img)
+    if not frames:
         print("  (grim is unavailable here - skipping the live check)")
     else:
-        ppm_img = QImage()
-        ppm_img.loadFromData(ppm_proc.stdout, "PPM")
-        ppm2_img = QImage()
-        ppm2_img.loadFromData(ppm2_proc.stdout, "PPM")
-        png_img = QImage()
-        png_img.loadFromData(png_proc.stdout, "PNG")
-        check("same dimensions", ppm_img.size() == png_img.size())
+        check("same dimensions", frames[0].size() == frames[1].size())
 
-        moving = {(x, y) for x, y, _d in diff_pixels(ppm_img, ppm2_img)}
-        unexplained = {
-            (x, y) for x, y, _d in diff_pixels(ppm_img, png_img)
-        } - moving
+        raws = [_raw_rgb32(f) for f in frames]
+        noise: set[int] = set()
+        for i in range(len(raws)):
+            for j in range(i + 1, len(raws)):
+                if (i, j) == (0, 1):
+                    continue  # the pair under test must not explain itself
+                noise |= _diff_index_set(raws[i], raws[j])
+        unexplained = _diff_index_set(raws[0], raws[1]) - noise
         check(
             "grim PPM == grim PNG, apart from what was moving",
             not unexplained,
-            f"{len(moving)} moving px, {len(unexplained)} unexplained",
+            f"{len(noise)} unstable px, {len(unexplained)} unexplained",
         )
 
     print("\nB. capture -> overlay (downscaled) -> export")

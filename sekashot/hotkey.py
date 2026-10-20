@@ -48,12 +48,23 @@ def _keysym_to_keycode(display, name: str) -> int | None:
 class X11Hotkey:
     """Polls an X11 key grab in a background thread."""
 
+    #: key combinations to try, most natural first
+    COMBOS: tuple[tuple[str, int], ...] = (
+        ("", 0),
+        ("Alt+", X.Mod1Mask),
+        ("Mod3+", X.Mod3Mask),
+        ("Super+", X.Mod4Mask),
+        ("Alt+Super+", X.Mod1Mask | X.Mod4Mask),
+    )
+
     def __init__(self, key_name: str, callback: Callable[[], None]) -> None:
         self.key_name = key_name
         self.callback = callback
         self._thread = None
         self._display = None
         self._running = False
+        #: the combinations that are actually ours, e.g. ``["Alt+Print"]``
+        self.combos: list[str] = []
 
     def start(self) -> bool:
         if not _HAVE_XLIB:
@@ -68,45 +79,59 @@ class X11Hotkey:
         screen = self._display.screen()
         root = screen.root
         keycode = None
-        for candidate in {self.key_name, self.key_name.lower(), "Print", "PrintScreen"}:
+        candidates = (self.key_name, self.key_name.lower(), "Print", "PrintScreen")
+        for candidate in dict.fromkeys(candidates):  # keep the order, drop duplicates
             keycode = _keysym_to_keycode(self._display, candidate)
             if keycode:
                 break
         if not keycode:
             return False
 
-        mods = [0]
-        for mod in (X.Mod1Mask, X.Mod3Mask, X.Mod4Mask, X.Mod1Mask | X.Mod4Mask):
-            mods.append(mod)
-        grabbed = False
-        for mod in mods:
+        # Another client - usually the desktop environment, which binds Print
+        # Screen itself - may already own the key.  XGrabKey does not fail at
+        # the call: the server answers later, at sync() time, with BadAccess.
+        # The default handler only prints that error, so the grab would look
+        # successful while it is not.  Collect the errors instead.
+        errors: list[object] = []
+        self._display.set_error_handler(lambda err, _req: errors.append(err))
+
+        grabbed: list[str] = []
+        for label, mod in self.COMBOS:
+            errors.clear()
             try:
                 root.grab_key(keycode, mod, True, X.GrabModeAsync, X.GrabModeAsync)
-                grabbed = True
+                self._display.sync()
             except Exception:
                 continue
+            if errors:
+                # the key combination belongs to somebody else
+                continue
+            grabbed.append(f"{label}{self.key_name}")
+
         if not grabbed:
+            try:
+                self._display.close()
+            except Exception:
+                pass
+            self._display = None
             return False
-        self._display.sync()
+
+        self.combos = grabbed
         self._running = True
 
         def loop() -> None:
             while self._running:
                 try:
-                    while self._display.pending_events():
-                        event = self._display.next_event()
-                        if event.type == X.KeyPress:
-                            try:
-                                self.callback()
-                            except Exception:
-                                pass
-                    self._display.next_event()
-                    try:
-                        self.callback()
-                    except Exception:
-                        pass
+                    event = self._display.next_event()
                 except Exception:
                     break
+                # a grab also delivers the key release - only the press counts
+                if event.type != X.KeyPress:
+                    continue
+                try:
+                    self.callback()
+                except Exception:
+                    pass
 
         self._thread = threading.Thread(target=loop, name="sekashot-hotkey", daemon=True)
         self._thread.start()
@@ -157,13 +182,22 @@ def install_global_hotkey(key_name: str, callback: Callable[[], None]):
         return None, wayland_hotkey_hint()
     backend = X11Hotkey(key_name, callback)
     if backend.start():
-        return backend, f"Global hotkey '{key_name}' grabbed (X11)."
+        combos = backend.combos
+        if combos and combos[0] == key_name:
+            return backend, f"Global hotkey '{key_name}' grabbed (X11)."
+        # the desktop already owns the plain key - say which ones do work
+        return backend, (
+            f"'{key_name}' is already taken by the desktop environment.\n"
+            f"Global hotkey grabbed instead: {', '.join(combos)} (X11)."
+        )
     backend = PynputHotkey(key_name, callback)
     if backend.start():
         return backend, f"Global hotkey '{key_name}' grabbed (pynput)."
     return None, (
-        "Could not grab a global hotkey. Install python3-xlib or python3-pynput,\n"
-        "or bind a key in your desktop environment to 'sekashot --capture'."
+        "Could not grab a global hotkey. The desktop environment may already\n"
+        "own Print Screen, or python3-xlib and python3-pynput are missing.\n"
+        "Install python3-xlib, or bind a key in your desktop environment to\n"
+        "run 'sekashot --capture'."
     )
 
 

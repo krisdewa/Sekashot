@@ -67,9 +67,9 @@ tray icon all depend on the desktop environment.
 | Environment | Capture | Hotkey | Tray |
 |---|---|---|---|
 | Wayland — niri | `grim` | `sekashot --install-hotkey`, automatic | `waybar` or similar |
-| Wayland — Sway / Hyprland / River | `grim` | paste the printed snippet | `waybar` or similar |
-| Wayland — GNOME | `xdg-desktop-portal-gnome` | paste the printed snippet | needs `gnome-shell-extension-appindicator` |
-| Wayland — KDE Plasma | `xdg-desktop-portal-kde` | paste the printed snippet | built in |
+| Wayland — Sway / Hyprland / River | `grim` | `sekashot --install-hotkey`, prints the line to paste | `waybar` or similar |
+| Wayland — GNOME | `xdg-desktop-portal-gnome` | *Settings → Keyboard → Custom Shortcuts* | needs `gnome-shell-extension-appindicator` |
+| Wayland — KDE Plasma | `xdg-desktop-portal-kde` | *Settings → Keyboard → Shortcuts* | built in |
 | X11 | Qt root-window grab | grabbed by the app | depends on the desktop |
 
 - **Wayland** needs `grim` (wlroots and scite compositors) or the desktop
@@ -104,11 +104,16 @@ Only a `.deb` is packaged. Other distributions run it from the source tree.
 Qt cannot grab system-wide keys on Wayland, so the binding comes from the
 compositor.
 
-- **X11** — the app grabs `Print Screen` itself. Nothing to do.
+- **X11** — the app grabs `Print Screen` itself. Nothing to do. Most desktops
+  already bind `Print Screen` to their own screenshot tool; when that is the
+  case the grab is refused by the X server and Sekashot falls back to
+  `Alt+Print`, `Super+Print` and `Alt+Super+Print`, and says so in the
+  notification.
 - **Wayland** — run `sekashot --install-hotkey`. On niri it writes the config
-  file and reloads it; elsewhere it prints a snippet to paste. Existing
-  bindings are respected: a key that is already taken is left alone and an
-  alternative is suggested.
+  file and reloads it; on Hyprland, Sway and River it prints a ready-to-paste
+  line; on GNOME and KDE it points at *Settings → Keyboard → Custom
+  Shortcuts*. Existing bindings are respected: a key that is already taken is
+  left alone and an alternative is suggested.
 
 ### Clipboard
 
@@ -142,7 +147,7 @@ the reliable path.
 |---|---|
 | "Could not capture the screen" on Wayland | install `grim`, or the portal for your desktop (`xdg-desktop-portal-gnome` / `-kde`) |
 | "The screen grab came back completely black" | no compositing manager on X11 — install `picom`, Mutter or KWin, or use a Wayland session. If your screen really is black, set `allow_black_capture` |
-| `Print Screen` does nothing | on Wayland run `sekashot --install-hotkey`, then reload the compositor config |
+| `Print Screen` does nothing | on Wayland run `sekashot --install-hotkey`, then reload the compositor config. On X11 the desktop may already own the key — the notification then names the combinations that did work (`Alt+Print`, `Super+Print`) |
 | No tray icon | install a StatusNotifierItem host such as `waybar`; on GNOME also `gnome-shell-extension-appindicator` |
 | No shutter sound | install `python3-pyqt6.qtmultimedia` — a `paplay`/`pw-play` fallback is used when present |
 | No popup after Copy / Save | needs a notification service: `python3-dbus` or `libnotify-bin` |
@@ -151,7 +156,7 @@ the reliable path.
 ## Development
 
 ```bash
-QT_QPA_PLATFORM=offscreen python3 tools/selftest.py       # 79 assertions
+QT_QPA_PLATFORM=offscreen python3 tools/selftest.py       # 85 assertions
 
 dpkg-deb -x sekashot.deb /tmp/root
 PYTHONPATH=/tmp/root/usr/lib/sekashot python3 tools/integration_test.py

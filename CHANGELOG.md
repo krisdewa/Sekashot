@@ -31,6 +31,18 @@ First public release.
 
 ### Fixed
 
+- **One key press no longer opens two overlays on X11.** The grab also delivers
+  the key release, and the polling loop fired the capture callback for whatever
+  event came next — so the release triggered a second capture. The loop now
+  only reacts to `KeyPress`.
+- **The X11 hotkey no longer claims a key it does not have.** `XGrabKey` does
+  not fail at the call: when another client already owns the key — which is
+  what GNOME, KDE, XFCE and Cinnamon do with `Print Screen` — the server
+  answers later, at `sync()` time, with `BadAccess`, and the default error
+  handler only prints it. The grab therefore looked successful while it was
+  not, and `Print Screen` silently did nothing. The errors are collected now,
+  and the combinations that really work (`Alt+Print`, `Super+Print`,
+  `Alt+Super+Print`) are named in the notification.
 - **The X11 grab keeps the panel's native resolution.** `QScreen.grabWindow()`
   returns device pixels, so on a HiDPI screen a 3840×2160 monitor produced a
   3840×2160 image even though its logical geometry is 1920×1080. The canvas was
@@ -72,6 +84,10 @@ First public release.
   answers the running daemon over an `AF_UNIX` socket before PyQt6 is even
   imported. grim is asked for raw PPM rather than PNG, and the tray-settle pause
   before the grab was cut from 250 ms to 80 ms.
+- *Hotkeys on X11 need a second chance.* The desktop environment very often
+  owns `Print Screen` already, so the app tries the plain key first and then
+  the same key with `Alt`, `Mod3`, `Super` and `Alt+Super`, and reports the
+  ones that actually landed.
 - *Sound is built lazily.* QtMultimedia is kept off the path between startup and
   a published endpoint, so a missing multimedia backend disables the click
   rather than the capture.

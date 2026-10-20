@@ -10,7 +10,9 @@ Run with:  QT_QPA_PLATFORM=offscreen python3 tools/selftest.py
 from __future__ import annotations
 
 import os
+import queue
 import sys
+import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -656,6 +658,121 @@ def main() -> int:
         )
     finally:
         cap.QGuiApplication.screens = real_screens
+
+    print("\n19. the X11 hotkey grab tells the truth")
+
+    from sekashot import hotkey as hot  # noqa: E402
+
+    class _BadAccess(Exception):
+        """Stands in for Xlib.error.BadAccess."""
+
+    class _FakeRoot:
+        def __init__(self, state):
+            self.state = state
+
+        def grab_key(self, keycode, mod, *_rest):
+            # the desktop environment owns the plain key
+            if self.state["taken"] and mod == 0:
+                self.state["pending"].append(_BadAccess("already grabbed"))
+
+    class _FakeScreen:
+        def __init__(self, state):
+            self.root = _FakeRoot(state)
+
+    class _FakeDisplay:
+        def __init__(self, state):
+            self.state = state
+            self._error_handler = None
+
+        def screen(self):
+            return _FakeScreen(self.state)
+
+        def keysym_to_keycode(self, _keysym):
+            return 107
+
+        def set_error_handler(self, fn):
+            self._error_handler = fn
+
+        def sync(self):
+            while self.state["pending"]:
+                err = self.state["pending"].pop(0)
+                if self._error_handler:
+                    self._error_handler(err, None)
+
+        def close(self):
+            pass
+
+        def next_event(self):
+            # block like the real server does, so the release arrives *after*
+            # the press has been handled - that is the race that used to fire
+            # the callback twice for a single key press
+            return self.state["queue"].get(timeout=2)
+
+        def pending_events(self):
+            return self.state["queue"].qsize() > 0
+
+    real_display = hot.xdisplay.Display
+    try:
+        hot.xdisplay.Display = lambda: _FakeDisplay(
+            {"taken": False, "pending": [], "queue": queue.Queue()}
+        )
+        backend = hot.X11Hotkey("Print", lambda: None)
+        worked = backend.start()
+        check("the grab succeeds when the key is free", worked)
+        check(
+            "the plain key is grabbed when it is free",
+            backend.combos[:1] == ["Print"],
+            ", ".join(backend.combos),
+        )
+        backend.stop()
+
+        hot.xdisplay.Display = lambda: _FakeDisplay(
+            {"taken": True, "pending": [], "queue": queue.Queue()}
+        )
+        backend = hot.X11Hotkey("Print", lambda: None)
+        worked = backend.start()
+        check("the grab still succeeds with the modified keys", worked)
+        check(
+            "the plain key is reported as taken by the desktop",
+            "Print" not in backend.combos,
+            ", ".join(backend.combos),
+        )
+        check(
+            "a modified key is reported instead",
+            any(c.endswith("Print") and c != "Print" for c in backend.combos),
+            ", ".join(backend.combos),
+        )
+        backend.stop()
+    finally:
+        hot.xdisplay.Display = real_display
+
+    # a key press must trigger exactly one capture, and the release that
+    # follows it must not trigger a second one
+    class _KeyEvent:
+        def __init__(self, kind):
+            self.type = kind
+
+    fired: list[int] = []
+    q: "queue.Queue[object]" = queue.Queue()
+    hot.xdisplay.Display = lambda: _FakeDisplay(
+        {"taken": False, "pending": [], "queue": q}
+    )
+    try:
+        backend = hot.X11Hotkey("Print", lambda: fired.append(1))
+        backend.start()
+        time.sleep(0.1)
+        q.put(_KeyEvent(hot.X.KeyPress))
+        time.sleep(0.08)  # the release follows the press, as on a real keyboard
+        q.put(_KeyEvent(hot.X.KeyRelease))
+        time.sleep(0.4)
+        backend.stop()
+    finally:
+        hot.xdisplay.Display = real_display
+    check(
+        "one key press triggers exactly one capture",
+        len(fired) == 1,
+        f"{len(fired)} trigger(s)",
+    )
 
     print("\n" + "=" * 60)
     if FAILURES:
