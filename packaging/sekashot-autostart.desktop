@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Sekashot
+Comment=Start the Sekashot screenshot tool in the system tray
+Exec=sekashot
+Icon=sekashot
+Terminal=false
+# NoDisplay keeps this autostart entry out of the application menu so it cannot
+# shadow /usr/share/applications/sekashot.desktop. It does not affect autostart.
+NoDisplay=true
+Hidden=false
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=3

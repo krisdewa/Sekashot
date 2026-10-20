@@ -1,0 +1,9 @@
+#!/bin/sh
+# Sekashot - launcher installed as /usr/bin/sekashot
+set -e
+
+PYTHONPATH="/usr/lib/sekashot${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+
+# Prefer the system python3; the package only needs the standard library + PyQt6.
+exec python3 -m sekashot "$@"

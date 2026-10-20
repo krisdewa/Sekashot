@@ -1,0 +1,29 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Sekashot
+GenericName=Screenshot Tool
+Comment=Take a screenshot, annotate it, then copy or save it
+Comment[fr]=Prenez une capture d'écran, annotez-la, puis copiez-la ou enregistrez-la
+Exec=sekashot
+TryExec=sekashot
+Icon=sekashot
+Terminal=false
+Categories=Graphics;Photography;
+Keywords=screenshot;screen;capture;snip;annotate;sekashot;printscreen;
+Keywords[fr]=capture;écran;annotation;sekashot;
+StartupNotify=false
+StartupWMClass=sekashot
+Actions=Capture;FullScreen;Settings;
+
+[Desktop Action Capture]
+Name=Take Screenshot
+Exec=sekashot --capture
+
+[Desktop Action FullScreen]
+Name=Full Screen to Clipboard
+Exec=sekashot --full
+
+[Desktop Action Settings]
+Name=Settings
+Exec=sekashot --settings

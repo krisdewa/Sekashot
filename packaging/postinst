@@ -1,0 +1,32 @@
+#!/bin/sh
+# Debian maintainer script - runs after the package is unpacked/configured.
+set -e
+
+if [ "$1" = "configure" ]; then
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database -q /usr/share/applications || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+    fi
+
+    cat >&2 <<'EOF'
+
+  Sekashot is installed.
+
+    * Start it from your application menu, or as a background tray app:
+          sekashot
+    * Take a screenshot right now:
+          sekashot --capture
+    * Open the options window:
+          sekashot --settings
+
+  Global hotkey
+    * X11     - the application grabs Print Screen automatically.
+    * Wayland - the compositor owns global keys; install the binding with:
+                    sekashot --install-hotkey
+
+EOF
+fi
+
+exit 0

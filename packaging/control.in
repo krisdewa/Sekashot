@@ -1,0 +1,22 @@
+Package: sekashot
+Version: @VERSION@
+Section: graphics
+Priority: optional
+Architecture: @ARCH@
+Maintainer: KrisDewa <krisdewa@users.noreply.github.com>
+Homepage: https://github.com/krisdewa/Sekashot
+Installed-Size: @SIZE@
+Depends: python3 (>= 3.9), python3-pyqt6
+Recommends: grim, wl-clipboard, xclip, python3-pyqt6.qtmultimedia, python3-xlib, python3-pynput, python3-dbus, libnotify-bin
+Suggests: gtk-update-icon-cache
+Description: Screenshot tool with annotations
+ Sekashot captures the screen on Print Screen, freezes the desktop behind a
+ dimmed overlay and lets you drag out a selection with a live pixel-size
+ readout.
+ .
+ Annotate the selection with pen, line, arrow, rectangle, marker, text and
+ blur, then copy or save it. Notifications report where a capture landed, so
+ an auto-saved file is never lost in a folder nobody was looking at.
+ .
+ On Wayland the hotkey comes from the compositor (see
+ 'sekashot --install-hotkey'); on X11 the application grabs the key itself.

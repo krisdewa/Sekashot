@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Build artefacts
+/build/
+/dist/
+/*.deb
+
+# Local tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Reverse-engineering evidence: screenshots of the original product, kept
+# under its owner's copyright, so they stay out of the published repository.
+rea-evidence/
